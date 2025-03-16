@@ -9,34 +9,58 @@ pipeline {
     stages {
         stage('Clone Repository') {
             steps {
-                git 'https://github.com/yourusername/jenkins-microk8s-app.git'
+                git credentialsId: 'github-token', url: 'https://github.com/fahmadzia/jenkins-microk8s-app.git', branch: 'main'
             }
         }
 
-        stage('Install Dependencies') {
+        stage('Prepare Kubernetes Files') {
             steps {
-                sh '''
-                python3 -m venv venv
-                source venv/bin/activate
-                pip install -r requirements.txt
-                '''
-            }
-        }
-
-        stage('Build and Push to MicroK8s') {
-            steps {
-                sh '''
-                microk8s ctr images ls
-                microk8s ctr image import my-k8s-app.tar
-                microk8s kubectl apply -f k8s/deployment.yaml
-                microk8s kubectl apply -f k8s/service.yaml
-                '''
+                sh 'mkdir -p k8s'
+                writeFile file: 'k8s/deployment.yaml', text: '''
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-k8s-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: my-k8s-app
+  template:
+    metadata:
+      labels:
+        app: my-k8s-app
+    spec:
+      containers:
+      - name: my-k8s-app
+        image: my-k8s-app:latest
+        ports:
+        - containerPort: 80
+'''
+                writeFile file: 'k8s/service.yaml', text: '''
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-k8s-service
+spec:
+  selector:
+    app: my-k8s-app
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 80
+  type: ClusterIP
+'''
             }
         }
 
         stage('Deploy to MicroK8s') {
             steps {
-                sh 'microk8s kubectl rollout status deployment/my-k8s-app'
+                sh '''
+                microk8s kubectl apply -f k8s/deployment.yaml
+                microk8s kubectl apply -f k8s/service.yaml
+                microk8s kubectl rollout status deployment/my-k8s-app
+                '''
             }
         }
     }
